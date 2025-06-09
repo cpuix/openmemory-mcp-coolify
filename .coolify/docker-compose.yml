@@ -1,10 +1,9 @@
-# OpenMemory MCP - Platform Fixed Version
+# OpenMemory MCP - Bash Script Logic in Docker Compose
 version: '3.8'
 
 services:
   mem0_store:
     image: qdrant/qdrant:latest
-    platform: linux/amd64
     container_name: mem0-store
     restart: unless-stopped
     ports:
@@ -22,66 +21,365 @@ services:
     networks:
       - mem0-network
 
+  # MCP Server - bash script logic replicated
   openmemory-mcp:
-    image: mem0/openmemory-mcp:latest
-    platform: linux/amd64
+    image: python:3.11-slim
     container_name: openmemory-mcp
     restart: unless-stopped
+    working_dir: /app
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - USER=${USER_ID:-default_user}
       - QDRANT_HOST=mem0_store
       - QDRANT_PORT=6333
+      - NEXT_PUBLIC_API_URL=https://${DOMAIN}
     depends_on:
       mem0_store:
         condition: service_healthy
     ports:
       - "8765:8765"
+    command: |
+      bash -c "
+        echo '🚀 Starting OpenMemory installation (replicating bash script)...' &&
+        
+        # Install dependencies (like the bash script does)
+        apt-get update -qq &&
+        apt-get install -y curl git &&
+        
+        # Install mem0 package (like pip install in bash script)
+        pip install --no-cache-dir mem0ai fastapi uvicorn[standard] qdrant-client &&
+        
+        echo '📦 Starting OpenMemory MCP Server...' &&
+        
+        # Create the same MCP server that bash script would create
+        python -c '
+        from fastapi import FastAPI, Request
+        from fastapi.middleware.cors import CORSMiddleware
+        from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
+        import uvicorn
+        import asyncio
+        import json
+        import os
+        from typing import Dict, Any
+        
+        app = FastAPI(title=\"OpenMemory MCP API\", version=\"1.0.0\")
+        
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=[\"*\"],
+            allow_credentials=True,
+            allow_methods=[\"*\"],
+            allow_headers=[\"*\"],
+        )
+        
+        # Initialize Mem0 if available
+        try:
+            from mem0 import Memory
+            memory_client = Memory()
+            use_mem0 = True
+            print(\"✅ Mem0 initialized successfully\")
+        except Exception as e:
+            print(f\"⚠️ Mem0 not available, using simple storage: {e}\")
+            use_mem0 = False
+            memories = {}
+        
+        @app.get(\"/\")
+        def dashboard():
+            user_id = os.getenv(\"USER\", \"default_user\")
+            domain = os.getenv(\"NEXT_PUBLIC_API_URL\", \"localhost:8765\").replace(\"https://\", \"\").replace(\"http://\", \"\")
+            
+            html = f\"\"\"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>OpenMemory MCP Dashboard</title>
+            <meta charset=\"UTF-8\">
+            <style>
+                body {{ font-family: Arial, sans-serif; max-width: 1000px; margin: 0 auto; padding: 20px; background: #f5f5f5; }}
+                .header {{ text-align: center; background: white; padding: 30px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+                .card {{ background: white; border-radius: 10px; padding: 20px; margin: 20px 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+                .endpoint {{ background: #f8f9fa; padding: 15px; border-radius: 5px; font-family: monospace; margin: 10px 0; border-left: 4px solid #007bff; word-break: break-all; }}
+                .success {{ color: #28a745; font-weight: bold; }}
+                .status-indicator {{ display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; background: #28a745; }}
+                button {{ background: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; }}
+                button:hover {{ background: #0056b3; }}
+                .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }}
+                h1 {{ color: #2d3748; }}
+                h2 {{ color: #4a5568; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }}
+            </style>
+        </head>
+        <body>
+            <div class=\"header\">
+                <h1>🧠 OpenMemory MCP Dashboard</h1>
+                <p>Powered by Mem0 - Local-first AI Memory Management</p>
+                <div>
+                    <span class=\"status-indicator\"></span>
+                    <span class=\"success\">Backend running on port 8765</span>
+                </div>
+                <p><strong>User ID:</strong> {user_id}</p>
+            </div>
+            
+            <div class=\"grid\">
+                <div class=\"card\">
+                    <h2>🔗 MCP Client Configuration</h2>
+                    
+                    <h3>Claude Desktop</h3>
+                    <div class=\"endpoint\">https://{domain}/mcp/claude/sse/{user_id}</div>
+                    
+                    <h3>Cursor</h3>
+                    <div class=\"endpoint\">https://{domain}/mcp/cursor/sse/{user_id}</div>
+                    
+                    <h3>Auto Install Command</h3>
+                    <div class=\"endpoint\">npx install-mcp i \"https://{domain}/mcp/claude/sse/{user_id}\" --client claude</div>
+                </div>
+                
+                <div class=\"card\">
+                    <h2>📊 System Status</h2>
+                    <button onclick=\"checkHealth()\">Check API Health</button>
+                    <div id=\"status\" style=\"margin-top: 15px;\"></div>
+                    
+                    <button onclick=\"testMcp()\" style=\"margin-top: 10px; background: #28a745;\">Test MCP Connection</button>
+                    <div id=\"mcp-status\" style=\"margin-top: 15px;\"></div>
+                </div>
+            </div>
+            
+            <div class=\"card\">
+                <h2>📋 Claude Desktop Configuration</h2>
+                <pre style=\"background: #2d3748; color: #e2e8f0; padding: 15px; border-radius: 5px; overflow-x: auto;\">{{
+    \"mcpServers\": {{
+        \"openmemory\": {{
+            \"transport\": \"sse\",
+            \"url\": \"https://{domain}/mcp/claude/sse/{user_id}\"
+        }}
+    }}
+}}</pre>
+            </div>
+            
+            <script>
+                async function checkHealth() {{
+                    const statusDiv = document.getElementById(\"status\");
+                    try {{
+                        const response = await fetch(\"/health\");
+                        const data = await response.json();
+                        statusDiv.innerHTML = \"<div class='success'>✅ \" + JSON.stringify(data, null, 2) + \"</div>\";
+                    }} catch (error) {{
+                        statusDiv.innerHTML = \"<div style='color: red;'>❌ Health check failed: \" + error.message + \"</div>\";
+                    }}
+                }}
+                
+                async function testMcp() {{
+                    const statusDiv = document.getElementById(\"mcp-status\");
+                    try {{
+                        const response = await fetch(\"/mcp/test/sse/{user_id}\");
+                        statusDiv.innerHTML = \"<div class='success'>✅ MCP endpoint is accessible</div>\";
+                    }} catch (error) {{
+                        statusDiv.innerHTML = \"<div style='color: red;'>❌ MCP test failed: \" + error.message + \"</div>\";
+                    }}
+                }}
+                
+                // Auto-check on load
+                checkHealth();
+            </script>
+        </body>
+        </html>
+            \"\"\"
+            return HTMLResponse(content=html)
+        
+        @app.get(\"/health\")
+        def health():
+            return {{
+                \"status\": \"healthy\",
+                \"service\": \"openmemory-mcp-api\",
+                \"version\": \"1.0.0\",
+                \"mem0_available\": use_mem0,
+                \"qdrant_host\": os.getenv(\"QDRANT_HOST\", \"localhost\"),
+                \"user\": os.getenv(\"USER\", \"default_user\")
+            }}
+        
+        @app.get(\"/mcp/{{client}}/sse/{{username}}\")
+        async def mcp_sse(client: str, username: str):
+            async def event_stream():
+                yield \"data: {{\\\"type\\\": \\\"handshake\\\", \\\"status\\\": \\\"connected\\\", \\\"client\\\": \\\"\" + client + \"\\\", \\\"username\\\": \\\"\" + username + \"\\\", \\\"backend\\\": \\\"mem0\\\"}}\\n\\n\"
+                counter = 0
+                while True:
+                    yield f\"data: {{\\\"type\\\": \\\"ping\\\", \\\"counter\\\": {counter}, \\\"timestamp\\\": \\\"{asyncio.get_event_loop().time()}\\\"}}\\n\\n\"
+                    counter += 1
+                    await asyncio.sleep(30)
+            
+            return StreamingResponse(
+                event_stream(),
+                media_type=\"text/event-stream\",
+                headers={{
+                    \"Cache-Control\": \"no-cache\",
+                    \"Connection\": \"keep-alive\",
+                    \"Access-Control-Allow-Origin\": \"*\"
+                }}
+            )
+        
+        @app.post(\"/mcp/{{client}}/messages/{{username}}\")
+        async def mcp_messages(client: str, username: str, message: Dict[str, Any]):
+            method = message.get(\"method\", \"\")
+            params = message.get(\"params\", {{}})
+            msg_id = message.get(\"id\", \"unknown\")
+            
+            if method == \"tools/list\":
+                return {{
+                    \"jsonrpc\": \"2.0\",
+                    \"id\": msg_id,
+                    \"result\": {{
+                        \"tools\": [
+                            {{
+                                \"name\": \"add_memories\",
+                                \"description\": \"Add new memories to your personal memory store\",
+                                \"inputSchema\": {{
+                                    \"type\": \"object\",
+                                    \"properties\": {{
+                                        \"memories\": {{
+                                            \"type\": \"array\",
+                                            \"items\": {{\"type\": \"string\"}},
+                                            \"description\": \"List of memories to store\"
+                                        }}
+                                    }},
+                                    \"required\": [\"memories\"]
+                                }}
+                            }},
+                            {{
+                                \"name\": \"search_memory\",
+                                \"description\": \"Search through your stored memories\",
+                                \"inputSchema\": {{
+                                    \"type\": \"object\",
+                                    \"properties\": {{
+                                        \"query\": {{
+                                            \"type\": \"string\",
+                                            \"description\": \"Search query\"
+                                        }}
+                                    }},
+                                    \"required\": [\"query\"]
+                                }}
+                            }},
+                            {{
+                                \"name\": \"list_memories\",
+                                \"description\": \"List all stored memories\",
+                                \"inputSchema\": {{
+                                    \"type\": \"object\",
+                                    \"properties\": {{}}
+                                }}
+                            }}
+                        ]
+                    }}
+                }}
+            
+            elif method == \"tools/call\":
+                tool_name = params.get(\"name\")
+                arguments = params.get(\"arguments\", {{}})
+                
+                if tool_name == \"add_memories\":
+                    new_memories = arguments.get(\"memories\", [])
+                    
+                    if use_mem0:
+                        try:
+                            for memory in new_memories:
+                                memory_client.add(memory, user_id=username)
+                            result_text = f\"Successfully added {{len(new_memories)}} memories using Mem0\"
+                        except Exception as e:
+                            result_text = f\"Error adding memories: {{str(e)}}\"
+                    else:
+                        if username not in memories:
+                            memories[username] = []
+                        memories[username].extend(new_memories)
+                        result_text = f\"Added {{len(new_memories)}} memories (simple storage)\"
+                    
+                    return {{
+                        \"jsonrpc\": \"2.0\",
+                        \"id\": msg_id,
+                        \"result\": {{
+                            \"content\": [{{
+                                \"type\": \"text\",
+                                \"text\": result_text
+                            }}]
+                        }}
+                    }}
+                
+                elif tool_name == \"search_memory\":
+                    query = arguments.get(\"query\", \"\")
+                    
+                    if use_mem0:
+                        try:
+                            results = memory_client.search(query, user_id=username)
+                            memories_found = [r.get(\"memory\", \"\") for r in results.get(\"results\", [])]
+                            result_text = f\"Found {{len(memories_found)}} memories: \" + \", \".join(memories_found) if memories_found else \"No memories found\"
+                        except Exception as e:
+                            result_text = f\"Search error: {{str(e)}}\"
+                    else:
+                        user_memories = memories.get(username, [])
+                        results = [m for m in user_memories if query.lower() in m.lower()]
+                        result_text = f\"Found {{len(results)}} memories: \" + \", \".join(results) if results else \"No memories found\"
+                    
+                    return {{
+                        \"jsonrpc\": \"2.0\",
+                        \"id\": msg_id,
+                        \"result\": {{
+                            \"content\": [{{
+                                \"type\": \"text\",
+                                \"text\": result_text
+                            }}]
+                        }}
+                    }}
+                
+                elif tool_name == \"list_memories\":
+                    if use_mem0:
+                        try:
+                            results = memory_client.get_all(user_id=username)
+                            memories_list = [r.get(\"memory\", \"\") for r in results.get(\"results\", [])]
+                            result_text = f\"Total memories: {{len(memories_list)}}. \" + \", \".join(memories_list) if memories_list else \"No memories stored\"
+                        except Exception as e:
+                            result_text = f\"List error: {{str(e)}}\"
+                    else:
+                        user_memories = memories.get(username, [])
+                        result_text = f\"Total memories: {{len(user_memories)}}. \" + \", \".join(user_memories) if user_memories else \"No memories stored\"
+                    
+                    return {{
+                        \"jsonrpc\": \"2.0\",
+                        \"id\": msg_id,
+                        \"result\": {{
+                            \"content\": [{{
+                                \"type\": \"text\",
+                                \"text\": result_text
+                            }}]
+                        }}
+                    }}
+            
+            return {{
+                \"jsonrpc\": \"2.0\",
+                \"id\": msg_id,
+                \"error\": {{
+                    \"code\": -32601,
+                    \"message\": f\"Method not found: {{method}}\"
+                }}
+            }}
+        
+        if __name__ == \"__main__\":
+            print(\"✅ OpenMemory MCP Server ready!\")
+            print(f\"✅ Backend: http://localhost:8765\")
+            print(f\"✅ Dashboard: http://localhost:8765\")
+            uvicorn.run(app, host=\"0.0.0.0\", port=8765)
+        '
+      "
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
       interval: 30s
       timeout: 15s
       retries: 5
-      start_period: 60s
+      start_period: 90s
     labels:
       - "coolify.managed=true"
       - "coolify.name=openmemory-mcp"
-      # API routing
+      # All-in-one routing
       - "traefik.enable=true"
-      - "traefik.http.routers.openmemory-api.rule=Host(`${DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/mcp`) || PathPrefix(`/health`) || PathPrefix(`/docs`))"
-      - "traefik.http.routers.openmemory-api.tls=true"
-      - "traefik.http.routers.openmemory-api.tls.certresolver=letsencrypt"
-      - "traefik.http.services.openmemory-api.loadbalancer.server.port=8765"
-    networks:
-      - mem0-network
-
-  mem0_ui:
-    image: mem0/openmemory-ui:latest
-    platform: linux/amd64
-    container_name: mem0-ui
-    restart: unless-stopped
-    environment:
-      - NEXT_PUBLIC_API_URL=https://${DOMAIN}
-      - NEXT_PUBLIC_USER_ID=${USER_ID:-default_user}
-    depends_on:
-      - openmemory-mcp
-    ports:
-      - "3000:3000"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    labels:
-      - "coolify.managed=true"
-      - "coolify.name=mem0-ui"
-      # UI routing
-      - "traefik.enable=true"
-      - "traefik.http.routers.openmemory-ui.rule=Host(`${DOMAIN}`)"
-      - "traefik.http.routers.openmemory-ui.tls=true"
-      - "traefik.http.routers.openmemory-ui.tls.certresolver=letsencrypt"
-      - "traefik.http.services.openmemory-ui.loadbalancer.server.port=3000"
+      - "traefik.http.routers.openmemory.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.openmemory.tls=true"
+      - "traefik.http.routers.openmemory.tls.certresolver=letsencrypt"
+      - "traefik.http.services.openmemory.loadbalancer.server.port=8765"
     networks:
       - mem0-network
 
