@@ -1,9 +1,10 @@
-# OpenMemory MCP - Official Mem0 Images
+# OpenMemory MCP - Platform Fixed Version
 version: '3.8'
 
 services:
   mem0_store:
     image: qdrant/qdrant:latest
+    platform: linux/amd64
     container_name: mem0-store
     restart: unless-stopped
     ports:
@@ -23,6 +24,7 @@ services:
 
   openmemory-mcp:
     image: mem0/openmemory-mcp:latest
+    platform: linux/amd64
     container_name: openmemory-mcp
     restart: unless-stopped
     environment:
@@ -55,6 +57,7 @@ services:
 
   mem0_ui:
     image: mem0/openmemory-ui:latest
+    platform: linux/amd64
     container_name: mem0-ui
     restart: unless-stopped
     environment:
