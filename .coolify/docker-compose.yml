@@ -1,17 +1,34 @@
-# .coolify/docker-compose.yml
-# Coolify için optimize edilmiş OpenMemory MCP deployment
-
+# OpenMemory MCP - Gerçek Mem0 Implementation
 version: '3.8'
 
 services:
+  postgres:
+    image: postgres:15
+    container_name: ${APP_NAME:-openmemory}-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=openmemory
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-openmemory123}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    labels:
+      - "coolify.managed=true"
+      - "coolify.name=${APP_NAME:-openmemory}-postgres"
+    networks:
+      - openmemory-network
+
   qdrant:
     image: qdrant/qdrant:v1.7.4
     container_name: ${APP_NAME:-openmemory}-qdrant
     restart: unless-stopped
     environment:
       - QDRANT__SERVICE__HTTP_PORT=6333
-      - QDRANT__SERVICE__GRPC_PORT=6334
-      - QDRANT__STORAGE__PERFORMANCE__OPTIMIZERS=indexing
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
@@ -19,32 +36,30 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 40s
     labels:
       - "coolify.managed=true"
       - "coolify.name=${APP_NAME:-openmemory}-qdrant"
-      - "coolify.group=${APP_GROUP:-openmemory}"
     networks:
       - openmemory-network
 
   api:
-    image: ghcr.io/mem0ai/openmemory-api:latest
+    build:
+      context: https://github.com/mem0ai/mem0.git#main
+      dockerfile: openmemory/api/Dockerfile
     container_name: ${APP_NAME:-openmemory}-api
     restart: unless-stopped
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-openmemory123}@postgres:5432/openmemory
       - QDRANT_URL=http://qdrant:6333
-      - QDRANT_API_KEY=${QDRANT_API_KEY:-}
       - HOST=0.0.0.0
       - PORT=8765
-      - ENVIRONMENT=production
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - MAX_MEMORY_SIZE=${MAX_MEMORY_SIZE:-1000}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
-    volumes:
-      - api_data:/app/data
-      - api_logs:/app/logs
+      - USER_ID=${USER_ID:-default_user}
+    ports:
+      - "8765:8765"
     depends_on:
+      postgres:
+        condition: service_healthy
       qdrant:
         condition: service_healthy
     healthcheck:
@@ -56,107 +71,53 @@ services:
     labels:
       - "coolify.managed=true"
       - "coolify.name=${APP_NAME:-openmemory}-api"
-      - "coolify.group=${APP_GROUP:-openmemory}"
       # Traefik routing for API
       - "traefik.enable=true"
       - "traefik.http.routers.${APP_NAME:-openmemory}-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/api`)"
       - "traefik.http.routers.${APP_NAME:-openmemory}-api.tls=true"
       - "traefik.http.routers.${APP_NAME:-openmemory}-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.${APP_NAME:-openmemory}-api.loadbalancer.server.port=8765"
-      # MCP endpoint routing (uzun bağlantılar için özel)
+      # MCP endpoint routing
       - "traefik.http.routers.${APP_NAME:-openmemory}-mcp.rule=Host(`${DOMAIN}`) && PathPrefix(`/mcp`)"
       - "traefik.http.routers.${APP_NAME:-openmemory}-mcp.tls=true"
       - "traefik.http.routers.${APP_NAME:-openmemory}-mcp.tls.certresolver=letsencrypt"
-      # SSE için özel konfigürasyon
-      - "traefik.http.middlewares.${APP_NAME:-openmemory}-mcp-headers.headers.customrequestheaders.Connection=keep-alive"
-      - "traefik.http.middlewares.${APP_NAME:-openmemory}-mcp-headers.headers.customrequestheaders.Cache-Control=no-cache"
-      - "traefik.http.routers.${APP_NAME:-openmemory}-mcp.middlewares=${APP_NAME:-openmemory}-mcp-headers"
     networks:
       - openmemory-network
 
   ui:
-    image: ghcr.io/mem0ai/openmemory-ui:latest
+    build:
+      context: https://github.com/mem0ai/mem0.git#main
+      dockerfile: openmemory/ui/Dockerfile
     container_name: ${APP_NAME:-openmemory}-ui
     restart: unless-stopped
     environment:
-      - REACT_APP_API_URL=https://${DOMAIN}/api
-      - NODE_ENV=production
-      - REACT_APP_VERSION=${APP_VERSION:-latest}
-      - REACT_APP_ENVIRONMENT=production
+      - NEXT_PUBLIC_API_URL=https://${DOMAIN}/api
+      - NEXT_PUBLIC_USER_ID=${USER_ID:-default_user}
+    ports:
+      - "3000:3000"
     depends_on:
-      api:
-        condition: service_healthy
+      - api
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
     labels:
       - "coolify.managed=true"
       - "coolify.name=${APP_NAME:-openmemory}-ui"
-      - "coolify.group=${APP_GROUP:-openmemory}"
       # Traefik routing for UI
       - "traefik.enable=true"
       - "traefik.http.routers.${APP_NAME:-openmemory}-ui.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.${APP_NAME:-openmemory}-ui.tls=true"
       - "traefik.http.routers.${APP_NAME:-openmemory}-ui.tls.certresolver=letsencrypt"
       - "traefik.http.services.${APP_NAME:-openmemory}-ui.loadbalancer.server.port=3000"
-      # UI için güvenlik headers
-      - "traefik.http.middlewares.${APP_NAME:-openmemory}-security.headers.frameDeny=true"
-      - "traefik.http.middlewares.${APP_NAME:-openmemory}-security.headers.contentTypeNosniff=true"
-      - "traefik.http.middlewares.${APP_NAME:-openmemory}-security.headers.browserXssFilter=true"
-      - "traefik.http.routers.${APP_NAME:-openmemory}-ui.middlewares=${APP_NAME:-openmemory}-security"
-    networks:
-      - openmemory-network
-
-  # Redis cache (opsiyonel performans iyileştirmesi)
-  redis:
-    image: redis:7-alpine
-    container_name: ${APP_NAME:-openmemory}-redis
-    restart: unless-stopped
-    environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-    volumes:
-      - redis_data:/data
-    command: >
-      redis-server 
-      --appendonly yes 
-      --appendfsync everysec
-      --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    labels:
-      - "coolify.managed=true"
-      - "coolify.name=${APP_NAME:-openmemory}-redis"
-      - "coolify.group=${APP_GROUP:-openmemory}"
     networks:
       - openmemory-network
 
 volumes:
+  postgres_data:
+    driver: local
   qdrant_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${DATA_PATH:-./data}/qdrant
-  api_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${DATA_PATH:-./data}/api
-  api_logs:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${LOGS_PATH:-./logs}
-  redis_data:
     driver: local
 
 networks:
