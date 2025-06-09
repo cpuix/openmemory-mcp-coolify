@@ -37,7 +37,7 @@ services:
       mem0_store:
         condition: service_healthy
     ports:
-      - "8765:8765"
+      - "8765:8765"  # API Dashboard - bu port açık olacak
     command: |
       bash -c "
         echo '🚀 Starting OpenMemory installation (replicating bash script)...' &&
@@ -374,7 +374,7 @@ services:
     labels:
       - "coolify.managed=true"
       - "coolify.name=openmemory-mcp"
-      # All-in-one routing
+      # Traefik routing for both dashboard and MCP endpoints
       - "traefik.enable=true"
       - "traefik.http.routers.openmemory.rule=Host(`${DOMAIN}`)"
       - "traefik.http.routers.openmemory.tls=true"
