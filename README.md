@@ -22,14 +22,14 @@
 
 ## ✨ Features
 
-- 🔒 **Privacy First** - All data stays on your server
+- 🔒 **Privacy First** - All data stays on your server using official Mem0 setup
 - 🌐 **Universal Memory** - Works with Claude, Cursor, Windsurf, and all MCP clients
-- ⚡ **Lightning Fast** - Vector-based semantic search with Qdrant
-- 🐳 **One-Click Deploy** - Coolify-optimized Docker Compose setup
+- ⚡ **Lightning Fast** - Vector-based semantic search with Qdrant + PostgreSQL
+- 🐳 **One-Click Deploy** - Uses Mem0's official easy setup script
 - 🔄 **Auto-Deploy** - GitHub Actions integration for seamless updates
-- 📊 **Built-in Dashboard** - Web UI for memory management
-- 🔧 **Easy Configuration** - Environment-based setup with sensible defaults
-- 📈 **Monitoring Ready** - Prometheus metrics and health checks included
+- 📊 **Built-in Dashboard** - Official Mem0 web UI for memory management
+- 🏗️ **Production Ready** - Mem0's battle-tested architecture
+- 📈 **Monitoring Ready** - Built-in health checks and logging
 
 ## 🚀 Quick Start
 
