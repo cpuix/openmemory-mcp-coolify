@@ -1,0 +1,66 @@
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+
+# Data directories
+data/
+logs/
+backups/
+
+# Docker volumes
+qdrant_data/
+redis_data/
+prometheus_data/
+
+# Node modules
+node_modules/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+
+# Testing
+.pytest_cache/
+.tox/
+
+# Documentation builds
+docs/_build/
+
+# SSL certificates
+*.pem
+*.key
+*.crt

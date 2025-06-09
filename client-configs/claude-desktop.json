@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "openmemory": {
+      "transport": "sse",
+      "url": "https://your-domain.com/mcp/claude/sse/YOUR_USERNAME"
+    }
+  }
+}

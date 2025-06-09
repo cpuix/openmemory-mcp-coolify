@@ -1,0 +1,151 @@
+name: Deploy to Coolify
+
+on:
+  push:
+    branches:
+      - main
+      - production
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+          - development
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up environment variables
+      run: |
+        echo "DEPLOYMENT_ENV=${{ github.event.inputs.environment || 'production' }}" >> $GITHUB_ENV
+        echo "COMMIT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
+        echo "TIMESTAMP=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+
+    - name: Validate deployment configuration
+      run: |
+        echo "🔍 Validating configuration..."
+        
+        if [ ! -f ".coolify/docker-compose.yml" ]; then
+          echo "❌ .coolify/docker-compose.yml not found!"
+          exit 1
+        fi
+        
+        if [ ! -f "coolify-install.sh" ]; then
+          echo "❌ coolify-install.sh not found!"
+          exit 1
+        fi
+        
+        if [ -z "${{ secrets.COOLIFY_WEBHOOK_URL }}" ]; then
+          echo "❌ COOLIFY_WEBHOOK_URL secret not set!"
+          exit 1
+        fi
+        
+        echo "✅ Configuration validation passed"
+
+    - name: Deploy to Coolify via Webhook
+      run: |
+        echo "🚀 Deploying to Coolify..."
+        
+        response=$(curl -s -w "%{http_code}" \
+          -X POST \
+          -H "Content-Type: application/json" \
+          -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}" \
+          -d '{
+            "branch": "${{ github.ref_name }}",
+            "commit": "${{ github.sha }}",
+            "environment": "${{ env.DEPLOYMENT_ENV }}",
+            "force": false
+          }' \
+          "${{ secrets.COOLIFY_WEBHOOK_URL }}")
+        
+        http_code="${response: -3}"
+        response_body="${response%???}"
+        
+        if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
+          echo "✅ Deployment triggered successfully"
+        else
+          echo "❌ Deployment failed with HTTP $http_code"
+          exit 1
+        fi
+
+    - name: Wait for deployment completion
+      timeout-minutes: 10
+      run: |
+        echo "⏳ Waiting for deployment to complete..."
+        
+        for i in {1..30}; do
+          echo "Checking deployment status... (attempt $i/30)"
+          
+          api_health=$(curl -s -o /dev/null -w "%{http_code}" "https://${{ vars.DOMAIN }}/api/health" || echo "000")
+          ui_health=$(curl -s -o /dev/null -w "%{http_code}" "https://${{ vars.DOMAIN }}/" || echo "000")
+          
+          echo "API Health: $api_health"
+          echo "UI Health: $ui_health"
+          
+          if [ "$api_health" = "200" ] && [ "$ui_health" = "200" ]; then
+            echo "✅ Deployment completed successfully!"
+            break
+          fi
+          
+          if [ $i -eq 30 ]; then
+            echo "❌ Deployment timeout - services not healthy after 10 minutes"
+            exit 1
+          fi
+          
+          sleep 20
+        done
+
+    - name: Create deployment summary
+      if: always()
+      run: |
+        echo "📊 Creating deployment summary..."
+        
+        cat > $GITHUB_STEP_SUMMARY << EOF
+        # 🚀 OpenMemory MCP Deployment Summary
+        
+        ## Deployment Details
+        - **Environment**: ${{ env.DEPLOYMENT_ENV }}
+        - **Commit**: \`${{ github.sha }}\`
+        - **Branch**: \`${{ github.ref_name }}\`
+        - **Actor**: ${{ github.actor }}
+        - **Timestamp**: ${{ env.TIMESTAMP }}
+        
+        ## Services Status
+        - **API**: https://${{ vars.DOMAIN }}/api/health
+        - **UI**: https://${{ vars.DOMAIN }}/
+        - **MCP Endpoint**: https://${{ vars.DOMAIN }}/mcp
+        
+        ## Quick Setup for MCP Clients
+        
+        ### Claude Desktop
+        \`\`\`json
+        {
+          "mcpServers": {
+            "openmemory": {
+              "transport": "sse",
+              "url": "https://${{ vars.DOMAIN }}/mcp/claude/sse/YOUR_USERNAME"
+            }
+          }
+        }
+        \`\`\`
+        
+        ## Access URLs
+        - 📊 **Dashboard**: https://${{ vars.DOMAIN }}
+        - 🔌 **MCP Endpoint**: https://${{ vars.DOMAIN }}/mcp
+        - 📖 **API Docs**: https://${{ vars.DOMAIN }}/api/docs
+        EOF

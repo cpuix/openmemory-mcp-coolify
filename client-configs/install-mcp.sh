@@ -1,0 +1,12 @@
+#!/bin/bash
+echo "🔌 MCP Client kurulum komutu:"
+echo ""
+echo "npx install-mcp i 'https://your-domain.com/mcp/YOUR_CLIENT/sse/YOUR_USERNAME' --client YOUR_CLIENT"
+echo ""
+echo "Örnekler:"
+echo "npx install-mcp i 'https://your-domain.com/mcp/claude/sse/john_doe' --client claude"
+echo "npx install-mcp i 'https://your-domain.com/mcp/cursor/sse/john_doe' --client cursor"
+echo ""
+echo "1. Önce dashboard'a gidin: https://your-domain.com"
+echo "2. Bir username oluşturun"
+echo "3. Yukarıdaki komutları kullanarak MCP client'ınızı yapılandırın"

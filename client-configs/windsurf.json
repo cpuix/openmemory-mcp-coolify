@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "openmemory": {
+      "transport": "sse",
+      "serverUrl": "https://your-domain.com/mcp/windsurf/sse/YOUR_USERNAME"
+    }
+  }
+}
